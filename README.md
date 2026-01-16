@@ -47,6 +47,13 @@ git commit -m "<Your Name> | Register for Polkadot Codecamp"
 
 <div align="center">
 
+## Participant Registration
+
+
+| 🦄 | Name | Github username | Your current occupation |
+|----|----|-----|----|
+| 🦀 | Võ Quang Chiến | 2giosangmitom | Full-stack developer | 
+
 ## Discover the List of Challenges 🏆
 
 <br/>
