@@ -50,27 +50,25 @@ export function RemoveLiquidity() {
         functionName: "allowance",
         args: [wallet.account!.address, ROUTER_ADDRESS],
       }) as bigint;
-      if (allowance < removeAmount) {
-        setStatus("Approving LP token...");
-        const approveHash = await wallet.writeContract({
-          address: pair,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [ROUTER_ADDRESS, removeAmount],
-          gas: 60000n,
+        if (allowance < removeAmount) {
+          setStatus("Approving LP token...");
+          const approveHash = await wallet.writeContract({
+            address: pair,
+            abi: erc20Abi,
+            functionName: "approve",
+            args: [ROUTER_ADDRESS, removeAmount],
+          });
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        }
+ 
+        setStatus("Removing liquidity...");
+        const hash = await wallet.writeContract({
+          address: ROUTER_ADDRESS,
+          abi: routerAbi,
+          functionName: "removeLiquidity",
+          args: [tokenA.address, tokenB.address, removeAmount, 0n, 0n, wallet.account!.address],
         });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
-      }
-
-      setStatus("Removing liquidity...");
-      const hash = await wallet.writeContract({
-        address: ROUTER_ADDRESS,
-        abi: routerAbi,
-        functionName: "removeLiquidity",
-        args: [tokenA.address, tokenB.address, removeAmount, 0n, 0n, wallet.account!.address],
-        gas: 250000n,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
+        await publicClient.waitForTransactionReceipt({ hash });
       setStatus("Liquidity removed");
     } catch (err: any) {
       console.error(err);

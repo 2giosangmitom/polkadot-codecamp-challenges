@@ -1,14 +1,13 @@
-import { createPublicClient, http, createWalletClient, custom } from "viem";
+import { createPublicClient, http, createWalletClient } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import "viem/window";
-
+// Official RPC for Paseo Asset Hub testnet (from README).
 const transport = http("https://testnet-passet-hub-eth-rpc.polkadot.io");
-const transportLocal = http("http://127.0.0.1:8545");
-
-// Configure the Passet Hub chain
+// Configure the Paseo Asset Hub chain
 export const passetHub = {
   id: 420420422,
-  name: "Passet Hub",
-  network: "passet-hub",
+  name: "Paseo Asset Hub",
+  network: "paseo-asset-hub",
   nativeCurrency: {
     decimals: 18,
     name: "PAS",
@@ -20,7 +19,7 @@ export const passetHub = {
     },
   },
 } as const;
-
+// Optional local dev chain (unchanged if you still want it elsewhere)
 export const localNode = {
   id: 31337,
   name: "Localhost",
@@ -36,24 +35,27 @@ export const localNode = {
     },
   },
 } as const;
-
-// Create a public client for reading data (default to testnet). Swap to localNode + transportLocal for local dev.
+// Public client for reads on testnet
 export const publicClient = createPublicClient({
   chain: passetHub,
-  transport: transport,
+  transport,
 });
-
-// Create a wallet client for signing transactions
+// Testnet account for writes (fund this via PAS faucet on Paseo Asset Hub)
+// NOTE: this is exposed client-side, so ONLY use a throwaway key with faucet funds.
+const pk = process.env.NEXT_PUBLIC_TESTNET_PRIVATE_KEY as
+  | `0x${string}`
+  | undefined;
+const testAccount = pk ? privateKeyToAccount(pk) : undefined;
+// Wallet client for signing + sending transactions directly through the testnet RPC
 export const getWalletClient = async () => {
-  if (typeof window !== "undefined" && window.ethereum) {
-    const [account] = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
-    return createWalletClient({
-      chain: passetHub,
-      transport: custom(window.ethereum),
-      account,
-    });
+  if (!testAccount) {
+    throw new Error(
+      "NEXT_PUBLIC_TESTNET_PRIVATE_KEY is not set in frontend .env"
+    );
   }
-  throw new Error("No Ethereum browser provider detected");
+  return createWalletClient({
+    chain: passetHub,
+    account: testAccount,
+    transport,
+  });
 };

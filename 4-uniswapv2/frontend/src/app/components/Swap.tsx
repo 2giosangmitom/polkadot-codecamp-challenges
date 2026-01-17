@@ -69,7 +69,6 @@ export function Swap() {
           abi: erc20Abi,
           functionName: "approve",
           args: [ROUTER_ADDRESS, parsedIn],
-          gas: 60000n,
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
       }
@@ -80,7 +79,6 @@ export function Swap() {
         abi: routerAbi,
         functionName: "swapExactTokensForTokens",
         args: [parsedIn, minOut, path, wallet.account!.address],
-        gas: 200000n,
       });
       await publicClient.waitForTransactionReceipt({ hash });
       setStatus("Swap confirmed");

@@ -30,7 +30,7 @@ export function AddLiquidity() {
       const parsedA = parseUnits(amountA, tokenA.decimals);
       const parsedB = parseUnits(amountB, tokenB.decimals);
 
-      // Approvals
+      // Approvals (with logging & error handling)
       const approvals = [
         { token: tokenA, amount: parsedA },
         { token: tokenB, amount: parsedB },
@@ -44,27 +44,45 @@ export function AddLiquidity() {
         }) as bigint;
         if (allowance < a.amount) {
           setStatus(`Approving ${a.token.symbol}...`);
-          const approveHash = await wallet.writeContract({
-            address: a.token.address,
-            abi: erc20Abi,
-            functionName: "approve",
-            args: [ROUTER_ADDRESS, a.amount],
-            gas: 60000n,
-          });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          try {
+            const approveHash = await wallet.writeContract({
+              address: a.token.address,
+              abi: erc20Abi,
+              functionName: "approve",
+              args: [ROUTER_ADDRESS, a.amount],
+            });
+            console.log(`${a.token.symbol} approve tx hash:`, approveHash);
+            const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+            console.log(`${a.token.symbol} approve receipt:`, approveReceipt);
+          } catch (err: any) {
+            console.error(`${a.token.symbol} approve failed:`, err);
+            const msg = err?.cause?.reason || err?.shortMessage || err?.message || `${a.token.symbol} approve failed`;
+            setStatus(`Error: ${msg}`);
+            setBusy(false);
+            return;
+          }
         }
       }
 
       setStatus("Supplying liquidity...");
-      const hash = await wallet.writeContract({
-        address: ROUTER_ADDRESS,
-        abi: routerAbi,
-        functionName: "addLiquidity",
-        args: [tokenA.address, tokenB.address, parsedA, parsedB, 0n, 0n, wallet.account!.address],
-        gas: 300000n,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
-      setStatus("Liquidity added");
+      try {
+        const hash = await wallet.writeContract({
+          address: ROUTER_ADDRESS,
+          abi: routerAbi,
+          functionName: "addLiquidity",
+          args: [tokenA.address, tokenB.address, parsedA, parsedB, 0n, 0n, wallet.account!.address],
+        });
+        console.log("addLiquidity tx hash:", hash);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        console.log("addLiquidity receipt:", receipt);
+        setStatus("Liquidity added");
+        setAmountA("");
+        setAmountB("");
+      } catch (err: any) {
+        console.error("addLiquidity failed:", err);
+        const msg = err?.cause?.reason || err?.shortMessage || err?.message || "Add liquidity failed";
+        setStatus(`Error: ${msg}`);
+      }
       setAmountA("");
       setAmountB("");
     } catch (err: any) {

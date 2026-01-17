@@ -14,16 +14,12 @@ export function Faucet() {
     setStatus(`Minting ${symbol}...`);
     try {
       const wallet = await getWalletClient();
-      
-      // Skip simulation and send directly with explicit gas to avoid RPC estimation issues
+
       const hash = await wallet.writeContract({
         address: addr,
         abi: erc20Abi,
         functionName: "faucet",
-        args: [],
-        gas: 50000n, // enough for faucet() based on Hardhat result (10741)
       });
-      
       await publicClient.waitForTransactionReceipt({ hash });
       setStatus(`Minted ${symbol}`);
     } catch (err: any) {

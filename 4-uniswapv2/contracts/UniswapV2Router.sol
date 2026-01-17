@@ -64,10 +64,19 @@ contract UniswapV2Router {
         uint amountBMin,
         address to
     ) external returns (uint amountA, uint amountB, uint liquidity) {
-        (uint reserveA, uint reserveB) = _getReserves(tokenA, tokenB);
-        if (reserveA == 0 && reserveB == 0) {
+        address pair = _getOrCreatePair(tokenA, tokenB);
+        
+        // Get reserves directly to avoid stack too deep
+        (uint reserve0, uint reserve1, ) = IUniswapV2Pair(pair).getReserves();
+        
+        if (reserve0 == 0 && reserve1 == 0) {
+            // First liquidity provision
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {
+            // Calculate optimal amounts based on existing reserves
+            (address token0, ) = _sortTokens(tokenA, tokenB);
+            (uint reserveA, uint reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
+            
             uint amountBOptimal = quote(amountADesired, reserveA, reserveB);
             if (amountBOptimal <= amountBDesired) {
                 require(amountBOptimal >= amountBMin, "UniswapV2Router: INSUFFICIENT_B_AMOUNT");
@@ -79,7 +88,6 @@ contract UniswapV2Router {
             }
         }
 
-        address pair = _getOrCreatePair(tokenA, tokenB);
         IERC20(tokenA).transferFrom(msg.sender, pair, amountA);
         IERC20(tokenB).transferFrom(msg.sender, pair, amountB);
         liquidity = IUniswapV2Pair(pair).mint(to);
