@@ -6,10 +6,13 @@ import TOKEN_BRIDGE from "../abi/TOKEN_BRIDGE.json";
 // For testing on BSC Testnet, use the address you deployed earlier.
 const TOKEN_BRIDGE_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_TOKEN_BRIDGE_ADDRESS || "0x0000000000000000000000000000000000000000";
 
+export type BridgeStage = "idle" | "approving" | "bridging" | "confirming" | "success" | "error";
+
 export function useBridge() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<any>(null);
+  const [stage, setStage] = useState<BridgeStage>("idle");
 
   const bridgeTokens = async ({
     token,
@@ -26,6 +29,7 @@ export function useBridge() {
       setLoading(true);
       setError(null);
       setReceipt(null);
+      setStage("idle");
 
       if (!window.ethereum) throw new Error("No crypto wallet found");
 
@@ -43,8 +47,29 @@ export function useBridge() {
       // Get recipient address (self)
       const recipient = await signer.getAddress();
 
-      // Convert amount to BigNumber (assuming 18 decimals)
-      const amountParsed = ethers.parseUnits(amount, 18);
+      // Get token decimals dynamically
+      const tokenContract = new ethers.Contract(
+        token,
+        [
+          "function approve(address spender, uint256 amount) public returns (bool)",
+          "function decimals() view returns (uint8)",
+          "function balanceOf(address owner) view returns (uint256)"
+        ],
+        signer
+      );
+
+      const decimals = await tokenContract.decimals();
+      console.log(`Token decimals: ${decimals}`);
+
+      // Check user balance
+      const userBalance = await tokenContract.balanceOf(recipient);
+      const amountParsed = ethers.parseUnits(amount, decimals);
+      
+      if (userBalance < amountParsed) {
+        throw new Error(`Insufficient balance. You have ${ethers.formatUnits(userBalance, decimals)} tokens but trying to bridge ${amount}`);
+      }
+
+      console.log(`Bridging ${amount} tokens (${amountParsed.toString()} wei) with ${decimals} decimals`);
 
       // Convert destChainId to bytes (e.g. "11155111" for Sepolia)
       // Note: The destChain format depends on how Hyperbridge expects it. 
@@ -53,20 +78,15 @@ export function useBridge() {
 
       // Approve token first (if it's an ERC20)
       // This is a simplified example; in production, check allowance first.
-      const tokenContract = new ethers.Contract(
-        token,
-        [
-            "function approve(address spender, uint256 amount) public returns (bool)"
-        ],
-        signer
-      );
       
+      setStage("approving");
       console.log("Approving token...");
       const approveTx = await tokenContract.approve(TOKEN_BRIDGE_CONTRACT_ADDRESS, amountParsed);
       await approveTx.wait();
       console.log("Token approved");
 
       // Send bridge transaction
+      setStage("bridging");
       console.log("Bridging tokens...");
       const tx = await contract.bridgeTokens(
         token,
@@ -77,12 +97,15 @@ export function useBridge() {
         { value: 0 } // Add value if native fee is required
       );
 
+      setStage("confirming");
       const txReceipt = await tx.wait();
+      setStage("success");
       setReceipt(txReceipt);
 
       return txReceipt;
     } catch (err: any) {
       console.error(err);
+      setStage("error");
       setError(err.message || "Unknown error");
       throw err;
     } finally {
@@ -90,5 +113,5 @@ export function useBridge() {
     }
   };
 
-  return { bridgeTokens, loading, error, receipt };
+  return { bridgeTokens, loading, error, receipt, stage };
 }
