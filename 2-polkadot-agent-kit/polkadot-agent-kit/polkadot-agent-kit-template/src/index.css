@@ -1,0 +1,74 @@
+:root {
+  /* Brand Colors - Grey Scale */
+  --grey-50: #FAFAF9;
+  --grey-100: #F5F5F4;
+  --grey-200: #E7E5E4;
+  --grey-300: #D6D3D1;
+  --grey-400: #A8A29E;
+  --grey-500: #78716C;
+  --grey-600: #57534E;
+  --grey-700: #57534E;
+  --grey-800: #292524;
+  --grey-900: #1C1917;
+  --grey-950: #0F0F0F;
+
+  /* Typography */
+  --font-display: 'DM Serif Display', serif;
+  --font-primary: 'DM Sans', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: var(--font-primary);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--grey-900);
+  background-color: var(--grey-50);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--grey-50);
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: 2.8em;
+  line-height: 1.1;
+  margin: 0;
+  font-weight: 400;
+  color: var(--grey-900);
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--grey-900);
+}
+
+h3 {
+  font-family: var(--font-primary);
+  font-weight: 600;
+  color: var(--grey-900);
+}
+
+h4 {
+  font-family: var(--font-primary);
+  font-size: 1em;
+  font-weight: 500;
+  margin: 0;
+  color: var(--grey-900);
+}
