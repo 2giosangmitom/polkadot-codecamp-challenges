@@ -5,7 +5,7 @@ import { factoryAbi } from "../config/abis";
 import { FACTORY_ADDRESS, TOKENS } from "../config/dex";
 import { getWalletClient, publicClient } from "../utils/viem";
 
-export function CreatePool() {
+export function CreatePool({ account }: { account: string | null }) {
   const [tokenA, setTokenA] = useState(TOKENS[0]);
   const [tokenB, setTokenB] = useState(TOKENS[1]);
   const [status, setStatus] = useState("");
@@ -14,6 +14,10 @@ export function CreatePool() {
   const handleCreate = async () => {
     if (tokenA.address === tokenB.address) {
       setStatus("Choose two distinct tokens");
+      return;
+    }
+    if (!account) {
+      setStatus("Please connect wallet first");
       return;
     }
     setBusy(true);

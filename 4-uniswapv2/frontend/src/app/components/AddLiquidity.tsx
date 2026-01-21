@@ -6,7 +6,7 @@ import { erc20Abi, routerAbi } from "../config/abis";
 import { ROUTER_ADDRESS, TOKENS } from "../config/dex";
 import { getWalletClient, publicClient } from "../utils/viem";
 
-export function AddLiquidity() {
+export function AddLiquidity({ account }: { account: string | null }) {
   const [tokenA, setTokenA] = useState(TOKENS[0]);
   const [tokenB, setTokenB] = useState(TOKENS[1]);
   const [amountA, setAmountA] = useState("");
@@ -23,6 +23,10 @@ export function AddLiquidity() {
 
   const handleAdd = async () => {
     if (!amountA || !amountB) return;
+    if (!account) {
+      setStatus("Please connect wallet first");
+      return;
+    }
     setBusy(true);
     setStatus("Preparing transaction...");
     try {
@@ -40,7 +44,7 @@ export function AddLiquidity() {
           address: a.token.address,
           abi: erc20Abi,
           functionName: "allowance",
-          args: [wallet.account!.address, ROUTER_ADDRESS],
+          args: [account as `0x${string}`, ROUTER_ADDRESS],
         }) as bigint;
         if (allowance < a.amount) {
           setStatus(`Approving ${a.token.symbol}...`);
@@ -70,7 +74,7 @@ export function AddLiquidity() {
           address: ROUTER_ADDRESS,
           abi: routerAbi,
           functionName: "addLiquidity",
-          args: [tokenA.address, tokenB.address, parsedA, parsedB, 0n, 0n, wallet.account!.address],
+          args: [tokenA.address, tokenB.address, parsedA, parsedB, 0n, 0n, account],
         });
         console.log("addLiquidity tx hash:", hash);
         const receipt = await publicClient.waitForTransactionReceipt({ hash });

@@ -8,10 +8,19 @@ import {
   ToolMessage,
 } from "@langchain/core/messages";
 import { PolkadotAgentKit, getLangChainTools } from "@polkadot-agent-kit/sdk";
-import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import {
+  createAction,
+  createErrorResponse,
+  createSuccessResponse,
+  type ToolConfig,
+} from "@polkadot-agent-kit/llm";
 // Import official prompts from the SDK
-import { ASSETS_PROMPT, DYNAMIC_CHAIN_INITIALIZATION_PROMPT, NOMINATION_PROMPT } from "@polkadot-agent-kit/llm";
+import {
+  ASSETS_PROMPT,
+  DYNAMIC_CHAIN_INITIALIZATION_PROMPT,
+  NOMINATION_PROMPT,
+} from "@polkadot-agent-kit/llm";
 
 // Define schema outside class to avoid TypeScript inference issues
 const poolInfoSchema = z.object({
@@ -29,6 +38,154 @@ const initializeChainApiSchema = z.object({
       "The chain ID to initialize (e.g., 'paseo', 'west_asset_hub', 'polkadot_asset_hub')",
     ),
 });
+
+// Create ensure_chain_api action using SDK helpers
+function createInitializeChainApiAction(agentKit: PolkadotAgentKit) {
+  const config: ToolConfig = {
+    name: "ensure_chain_api",
+    description:
+      "Initialize the API connection for a specific chain. Call this when you encounter 'API not found' or 'chain not initialized' errors.",
+    schema: initializeChainApiSchema as any,
+  };
+
+  const action = {
+    async invoke(args: z.infer<typeof initializeChainApiSchema>) {
+      const { chainId } = args;
+      try {
+        console.log(`Initializing API for chain: ${chainId}`);
+        const initFn: any = (agentKit as any).initializeApi;
+        if (typeof initFn === "function") {
+          try {
+            await initFn.call(agentKit, chainId);
+          } catch (_) {
+            await initFn.call(agentKit);
+          }
+        }
+
+        return createSuccessResponse(
+          { success: true, chainId, message: `Initialized API for ${chainId}` },
+          config.name,
+        );
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Initialize chain API error:", message);
+        return createErrorResponse(message, config.name);
+      }
+    },
+  };
+
+  return createAction(action, config);
+}
+
+// Create list_nomination_pools action using SDK helpers
+function createGetPoolInfoAction(agentKit: PolkadotAgentKit) {
+  const poolInfoConfig: ToolConfig = {
+    name: "list_nomination_pools",
+    description:
+      "Get information about all nomination pools on a specific relay chain. Returns pool IDs, states, member counts, and other details. Nomination pools exist on RELAY chains like 'paseo', 'west', 'polkadot', 'kusama', NOT on asset hub chains. If you specify an asset hub chain, it will automatically query the corresponding relay chain.",
+    schema: poolInfoSchema as any,
+  };
+
+  const assetHubToRelay: Record<string, string> = {
+    paseo_asset_hub: "paseo",
+    "paseo-asset-hub": "paseo",
+    "paseo assethub": "paseo",
+    west_asset_hub: "west",
+    "west-asset-hub": "west",
+    westend_asset_hub: "west",
+    "westend-asset-hub": "west",
+    polkadot_asset_hub: "polkadot",
+    "polkadot-asset-hub": "polkadot",
+    kusama_asset_hub: "kusama",
+    "kusama-asset-hub": "kusama",
+  };
+
+  const action = {
+    async invoke(args: z.infer<typeof poolInfoSchema>) {
+      const { chain } = args;
+      const normalized = chain.toLowerCase().trim();
+      const relayChain = assetHubToRelay[normalized] || chain;
+
+      try {
+        console.log(`Fetching pool info for chain: ${chain} -> relay: ${relayChain}`);
+
+        let api: any;
+        try {
+          api = agentKit.getApi(relayChain as any);
+          if (api && api.waitReady) await api.waitReady;
+        } catch (e: any) {
+            return createErrorResponse(
+            `Chain API not initialized for "${relayChain}". Please call ensure_chain_api first with chainId: "${relayChain}"`,
+            poolInfoConfig.name,
+          );
+        }
+
+        if (!api) {
+          return createErrorResponse(
+            `API not available for chain "${relayChain}". Please initialize it first.`,
+            poolInfoConfig.name,
+          );
+        }
+
+        if (!api.query?.NominationPools) {
+          return createErrorResponse(
+            `NominationPools pallet not available on ${relayChain}. Nomination pools only exist on relay chains.`,
+            poolInfoConfig.name,
+          );
+        }
+
+        const allPoolEntries = await api.query.NominationPools.BondedPools.getEntries();
+
+        if (!allPoolEntries || allPoolEntries.length === 0) {
+          return createSuccessResponse(
+            {
+              chain: relayChain,
+              originalChain: chain !== relayChain ? chain : undefined,
+              poolCount: 0,
+              pools: [],
+              message: "No nomination pools found on this chain.",
+            },
+            poolInfoConfig.name,
+          );
+        }
+
+        const pools = allPoolEntries.slice(0, 20).map((entry: any) => {
+          const poolId = entry.keyArgs[0];
+          const poolInfo = entry.value;
+          return {
+            id: typeof poolId === "number" ? poolId : Number(poolId),
+            state: poolInfo.state?.type || String(poolInfo.state) || "Unknown",
+            points: poolInfo.points?.toString() || "0",
+            memberCount: poolInfo.member_counter || 0,
+            roles: {
+              depositor: poolInfo.roles?.depositor || "Unknown",
+              root: poolInfo.roles?.root?.value || poolInfo.roles?.root || null,
+              nominator: poolInfo.roles?.nominator?.value || poolInfo.roles?.nominator || null,
+              bouncer: poolInfo.roles?.bouncer?.value || poolInfo.roles?.bouncer || null,
+            },
+          };
+        });
+
+        return createSuccessResponse(
+          {
+            chain: relayChain,
+            originalChain: chain !== relayChain ? chain : undefined,
+            poolCount: allPoolEntries.length,
+            pools,
+            message: allPoolEntries.length > 20 ? `Showing first 20 of ${allPoolEntries.length} pools.` : `Found ${allPoolEntries.length} nomination pool(s).`,
+          },
+          poolInfoConfig.name,
+        );
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Get pool info error:", message);
+        return createErrorResponse(message, poolInfoConfig.name);
+      }
+    },
+  };
+
+  return createAction(action, poolInfoConfig);
+}
 
 export type AgentProvider = "openai" | "ollama" | "gemini";
 
@@ -59,19 +216,13 @@ const createStakingSystemPrompt = (
     ? `\n\n## CURRENT CONNECTION\nYou are currently connected to: **${displayName || connectedChain}** (chain ID: "${connectedChain}")\n`
     : "";
 
-  // Custom prompt for our get_pool_info tool (not in SDK)
+  // Custom prompt for our list_nomination_pools tool (not in SDK)
   const GET_POOL_INFO_PROMPT = `
 ## Get Pool Info Tool (Custom)
 
-You have access to the **get_pool_info** tool to query nomination pool information:
+You have access to the **list_nomination_pools** tool to query nomination pool information:
 - Parameters: chain (string) - Use RELAY chains: "paseo", "west", "polkadot", "kusama"
 - Returns: List of pools with their IDs, states, member counts, and metadata
-- **IMPORTANT**: Nomination pools exist ONLY on RELAY chains, NOT on Asset Hub chains!
-  - Paseo relay chain: "paseo"
-  - Westend relay chain: "west"
-  - Polkadot relay chain: "polkadot"
-  - Kusama relay chain: "kusama"
-  - Asset Hub chains like "paseo_asset_hub" do NOT have nomination pools
 `;
 
   // Simplified chain initialization prompt for smaller LLMs
@@ -79,7 +230,7 @@ You have access to the **get_pool_info** tool to query nomination pool informati
 ## Chain Initialization (IMPORTANT)
 
 When you encounter a chain-related error like "API not found" or "chain not initialized":
-1. Call the **initialize_chain_api** tool with the chainId parameter
+1. Call the **ensure_chain_api** tool with the chainId parameter
 2. After initialization succeeds, retry your original operation
 
 Chain IDs:
@@ -87,7 +238,7 @@ Chain IDs:
 - Asset Hub chains (for staking operations): "paseo_asset_hub", "west_asset_hub", "polkadot_asset_hub"
 
 IMPORTANT: Always TRY the tool call first. If it fails, then initialize the chain and retry.
-Do NOT ask the user to initialize - YOU must call the initialize_chain_api tool yourself.
+Do NOT ask the user to initialize - YOU must call the ensure_chain_api tool yourself.
 `;
 
   // Combine SDK prompts with our additions
@@ -105,8 +256,8 @@ ${GET_POOL_INFO_PROMPT}
 ## CRITICAL INSTRUCTIONS
 
 1. ALWAYS call tools directly - never ask the user to do it
-2. When asked about pools, use get_pool_info with the RELAY chain (e.g., "paseo", not "paseo_asset_hub")
-3. If a tool fails with chain error, call initialize_chain_api then retry
+2. When asked about pools, use list_nomination_pools with the RELAY chain (e.g., "paseo", not "paseo_asset_hub")
+3. If a tool fails with chain error, call ensure_chain_api then retry
 4. Be concise and show results clearly
 
 ## Response Style
@@ -141,193 +292,9 @@ export class AgentWrapper {
     this.tools = [];
   }
 
-  // Create a custom initialize_chain_api tool since SDK doesn't provide one
-  private createInitializeChainApiTool(): any {
-    const agentKit = this.agentKit;
 
-    return new DynamicStructuredTool({
-      name: "initialize_chain_api",
-      description:
-        "Initialize the API connection for a specific chain. Call this when you encounter 'API not found' or 'chain not initialized' errors.",
-      schema: initializeChainApiSchema as any,
-      func: async ({
-        chainId,
-      }: z.infer<typeof initializeChainApiSchema>): Promise<string> => {
-        try {
-          console.log(`Initializing API for chain: ${chainId}`);
 
-          // Call the SDK's initializeApi method
-          await agentKit.initializeApi();
 
-          return JSON.stringify({
-            success: true,
-            chainId,
-            message: `Successfully initialized API for chain: ${chainId}`,
-          });
-        } catch (error: any) {
-          console.error("Initialize chain API error:", error);
-          return JSON.stringify({
-            success: false,
-            chainId,
-            error: error.message || "Failed to initialize chain API",
-          });
-        }
-      },
-    });
-  }
-
-  // Create a custom get_pool_info tool since SDK doesn't provide one
-  private createGetPoolInfoTool(): any {
-    const agentKit = this.agentKit;
-
-    // Map asset hub chains to their relay chains for pool queries
-    const getRelayChain = (chain: string): string => {
-      const normalized = chain.toLowerCase().trim();
-
-      // Asset hub to relay chain mapping
-      const assetHubToRelay: Record<string, string> = {
-        paseo_asset_hub: "paseo",
-        "paseo-asset-hub": "paseo",
-        "paseo assethub": "paseo",
-        west_asset_hub: "west",
-        "west-asset-hub": "west",
-        westend_asset_hub: "west",
-        "westend-asset-hub": "west",
-        polkadot_asset_hub: "polkadot",
-        "polkadot-asset-hub": "polkadot",
-        kusama_asset_hub: "kusama",
-        "kusama-asset-hub": "kusama",
-      };
-
-      return assetHubToRelay[normalized] || chain;
-    };
-
-    return new DynamicStructuredTool({
-      name: "get_pool_info",
-      description:
-        "Get information about all nomination pools on a specific relay chain. Returns pool IDs, states, member counts, and other details. Nomination pools exist on RELAY chains like 'paseo', 'west', 'polkadot', 'kusama', NOT on asset hub chains. If you specify an asset hub chain, it will automatically query the corresponding relay chain.",
-      schema: poolInfoSchema as any,
-      func: async ({
-        chain,
-      }: z.infer<typeof poolInfoSchema>): Promise<string> => {
-        // Map asset hub chains to relay chains
-        const relayChain = getRelayChain(chain);
-        try {
-          console.log(
-            `Fetching pool info for chain: ${chain} -> relay chain: ${relayChain}`,
-          );
-
-          // Get the API for the relay chain
-          let api: any;
-          try {
-            api = agentKit.getApi(relayChain as any);
-          } catch (e: any) {
-            // Chain might not be initialized yet
-            return JSON.stringify({
-              success: false,
-              error: `Chain API not initialized for "${relayChain}". Please call initialize_chain_api first with chainId: "${relayChain}"`,
-              chain: relayChain,
-              originalChain: chain !== relayChain ? chain : undefined,
-              hint: "The agent should call initialize_chain_api tool to initialize this chain.",
-            });
-          }
-
-          if (!api) {
-            return JSON.stringify({
-              success: false,
-              error: `API not available for chain "${relayChain}". Please initialize it first.`,
-              chain: relayChain,
-              originalChain: chain !== relayChain ? chain : undefined,
-            });
-          }
-
-          // Try to get all pools using the exact same pattern as SDK's getAllPoolsInfo
-          try {
-            // Check if NominationPools pallet exists
-            if (!api.query?.NominationPools) {
-              return JSON.stringify({
-                success: false,
-                error: `NominationPools pallet not available on ${relayChain}. Nomination pools only exist on relay chains.`,
-                chain: relayChain,
-                originalChain: chain !== relayChain ? chain : undefined,
-              });
-            }
-
-            // Get all pool entries using the SDK pattern
-            const allPoolEntries =
-              await api.query.NominationPools.BondedPools.getEntries();
-
-            if (!allPoolEntries || allPoolEntries.length === 0) {
-              return JSON.stringify({
-                success: true,
-                chain: relayChain,
-                originalChain: chain !== relayChain ? chain : undefined,
-                poolCount: 0,
-                pools: [],
-                message: "No nomination pools found on this chain.",
-              });
-            }
-
-            // Format the pools using the SDK's pattern
-            const pools = allPoolEntries.slice(0, 20).map((entry: any) => {
-              const poolId = entry.keyArgs[0];
-              const poolInfo = entry.value;
-
-              return {
-                id: typeof poolId === "number" ? poolId : Number(poolId),
-                state:
-                  poolInfo.state?.type || String(poolInfo.state) || "Unknown",
-                points: poolInfo.points?.toString() || "0",
-                memberCount: poolInfo.member_counter || 0,
-                roles: {
-                  depositor: poolInfo.roles?.depositor || "Unknown",
-                  root:
-                    poolInfo.roles?.root?.value || poolInfo.roles?.root || null,
-                  nominator:
-                    poolInfo.roles?.nominator?.value ||
-                    poolInfo.roles?.nominator ||
-                    null,
-                  bouncer:
-                    poolInfo.roles?.bouncer?.value ||
-                    poolInfo.roles?.bouncer ||
-                    null,
-                },
-              };
-            });
-
-            return JSON.stringify({
-              success: true,
-              chain: relayChain,
-              originalChain: chain !== relayChain ? chain : undefined,
-              poolCount: allPoolEntries.length,
-              pools,
-              message:
-                allPoolEntries.length > 20
-                  ? `Showing first 20 of ${allPoolEntries.length} pools.`
-                  : `Found ${allPoolEntries.length} nomination pool(s).`,
-            });
-          } catch (queryError: any) {
-            console.error("Pool query error:", queryError);
-            return JSON.stringify({
-              success: false,
-              error: `Failed to query pools: ${queryError.message}`,
-              chain: relayChain,
-              originalChain: chain !== relayChain ? chain : undefined,
-              hint: "Make sure the chain API is properly initialized with initialize_chain_api tool.",
-            });
-          }
-        } catch (error: any) {
-          console.error("Get pool info error:", error);
-          return JSON.stringify({
-            success: false,
-            error: error.message || "Unknown error fetching pool info",
-            chain: relayChain,
-            originalChain: chain !== relayChain ? chain : undefined,
-          });
-        }
-      },
-    });
-  }
 
   async init(systemPrompt?: string) {
     console.log(`Initializing ${this.provider} with model: ${this.model}`);
@@ -344,13 +311,14 @@ export class AgentWrapper {
       ? `${basePrompt}\n\nAdditional instructions: ${systemPrompt}`
       : basePrompt;
 
+    // Register custom tools with agentKit so LangChain tools include them
+    this.agentKit.addCustomTools([
+      createGetPoolInfoAction(this.agentKit),
+      createInitializeChainApiAction(this.agentKit),
+    ]);
+
     // Get SDK tools
     this.tools = getLangChainTools(this.agentKit);
-
-    // Add custom tools since SDK doesn't provide them
-    const getPoolInfoTool = this.createGetPoolInfoTool();
-    const initializeChainApiTool = this.createInitializeChainApiTool();
-    this.tools.push(getPoolInfoTool, initializeChainApiTool);
 
     // Log available tools
     console.log(
@@ -534,7 +502,7 @@ export class AgentWrapper {
     for (const tr of toolResults) {
       if (tr.success && tr.result) {
         // Check for common pool info fields
-        if (tr.tool === "get_pool_info") {
+        if (tr.tool === "list_nomination_pools") {
           // If it mentions pool or the result contains data that should be in output
           const result = tr.result;
           if (typeof result === "object") {
@@ -569,7 +537,7 @@ export class AgentWrapper {
           .replace(/_/g, " ")
           .replace(/\b\w/g, (l: string) => l.toUpperCase());
 
-        if (tr.tool === "get_pool_info") {
+        if (tr.tool === "list_nomination_pools") {
           parts.push(this.formatPoolInfo(tr.result));
         } else if (tr.tool === "join_pool") {
           parts.push(

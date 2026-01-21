@@ -5,7 +5,7 @@ import { erc20Abi, factoryAbi, pairAbi, routerAbi } from "../config/abis";
 import { FACTORY_ADDRESS, ROUTER_ADDRESS, TOKENS } from "../config/dex";
 import { getWalletClient, publicClient } from "../utils/viem";
 
-export function RemoveLiquidity() {
+export function RemoveLiquidity({ account }: { account: string | null }) {
   const [tokenA, setTokenA] = useState(TOKENS[0]);
   const [tokenB, setTokenB] = useState(TOKENS[1]);
   const [percent, setPercent] = useState("50");
@@ -14,6 +14,10 @@ export function RemoveLiquidity() {
 
   const handleRemove = async () => {
     if (!percent || Number(percent) <= 0) return;
+    if (!account) {
+      setStatus("Please connect wallet first");
+      return;
+    }
     setBusy(true);
     setStatus("Preparing removal...");
     try {
@@ -34,7 +38,7 @@ export function RemoveLiquidity() {
         address: pair,
         abi: pairAbi,
         functionName: "balanceOf",
-        args: [wallet.account!.address],
+        args: [account as `0x${string}`],
       }) as bigint;
       if (balance === 0n) {
         setStatus("No LP tokens to remove");
@@ -48,7 +52,7 @@ export function RemoveLiquidity() {
         address: pair,
         abi: erc20Abi,
         functionName: "allowance",
-        args: [wallet.account!.address, ROUTER_ADDRESS],
+        args: [account as `0x${string}`, ROUTER_ADDRESS],
       }) as bigint;
         if (allowance < removeAmount) {
           setStatus("Approving LP token...");
@@ -66,7 +70,7 @@ export function RemoveLiquidity() {
           address: ROUTER_ADDRESS,
           abi: routerAbi,
           functionName: "removeLiquidity",
-          args: [tokenA.address, tokenB.address, removeAmount, 0n, 0n, wallet.account!.address],
+          args: [tokenA.address, tokenB.address, removeAmount, 0n, 0n, account],
         });
         await publicClient.waitForTransactionReceipt({ hash });
       setStatus("Liquidity removed");

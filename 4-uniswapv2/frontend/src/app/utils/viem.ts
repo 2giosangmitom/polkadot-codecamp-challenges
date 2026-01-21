@@ -1,5 +1,4 @@
-import { createPublicClient, http, createWalletClient } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, http, createWalletClient, custom } from "viem";
 import "viem/window";
 // Official RPC for Paseo Asset Hub testnet (from README).
 const transport = http("https://testnet-passet-hub-eth-rpc.polkadot.io");
@@ -40,22 +39,17 @@ export const publicClient = createPublicClient({
   chain: passetHub,
   transport,
 });
-// Testnet account for writes (fund this via PAS faucet on Paseo Asset Hub)
-// NOTE: this is exposed client-side, so ONLY use a throwaway key with faucet funds.
-const pk = process.env.NEXT_PUBLIC_TESTNET_PRIVATE_KEY as
-  | `0x${string}`
-  | undefined;
-const testAccount = pk ? privateKeyToAccount(pk) : undefined;
-// Wallet client for signing + sending transactions directly through the testnet RPC
+// Wallet client for signing + sending transactions through MetaMask
 export const getWalletClient = async () => {
-  if (!testAccount) {
-    throw new Error(
-      "NEXT_PUBLIC_TESTNET_PRIVATE_KEY is not set in frontend .env"
-    );
+  if (typeof window === 'undefined' || !window.ethereum) {
+    throw new Error('MetaMask not detected');
   }
+  const [account] = await window.ethereum.request({
+    method: 'eth_requestAccounts',
+  }) as [`0x${string}`];
   return createWalletClient({
     chain: passetHub,
-    account: testAccount,
-    transport,
+    account,
+    transport: custom(window.ethereum),
   });
 };

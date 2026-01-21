@@ -6,7 +6,7 @@ import { erc20Abi, routerAbi } from "../config/abis";
 import { ROUTER_ADDRESS, TOKENS } from "../config/dex";
 import { getWalletClient, publicClient } from "../utils/viem";
 
-export function Swap() {
+export function Swap({ account }: { account: string | null }) {
   const [tokenIn, setTokenIn] = useState(TOKENS[0]);
   const [tokenOut, setTokenOut] = useState(TOKENS[1]);
   const [amountIn, setAmountIn] = useState<string>("");
@@ -42,6 +42,10 @@ export function Swap() {
 
   const handleSwap = async () => {
     if (!amountIn || !Number(amountIn)) return;
+    if (!account) {
+      setStatus("Please connect wallet first");
+      return;
+    }
     setBusy(true);
     setStatus("Requesting wallet signature...");
     try {
@@ -60,7 +64,7 @@ export function Swap() {
         address: tokenIn.address,
         abi: erc20Abi,
         functionName: "allowance",
-        args: [wallet.account!.address, ROUTER_ADDRESS],
+        args: [account as `0x${string}`, ROUTER_ADDRESS],
       }) as bigint;
       if (allowance < parsedIn) {
         setStatus("Approving token...");
@@ -78,7 +82,7 @@ export function Swap() {
         address: ROUTER_ADDRESS,
         abi: routerAbi,
         functionName: "swapExactTokensForTokens",
-        args: [parsedIn, minOut, path, wallet.account!.address],
+        args: [parsedIn, minOut, path, account],
       });
       await publicClient.waitForTransactionReceipt({ hash });
       setStatus("Swap confirmed");

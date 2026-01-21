@@ -117,6 +117,18 @@ const getAgentChainId = (chainName: string | undefined): string => {
   return "west_asset_hub";
 };
 
+// Map an agent chain (could be an asset hub) to its relay chain for pool queries
+const mapToRelayChain = (agentChainId: string) => {
+  const normalized = agentChainId.toLowerCase().trim();
+  const map: Record<string, string> = {
+    paseo_asset_hub: "paseo",
+    west_asset_hub: "west",
+    polkadot_asset_hub: "polkadot",
+    kusama_asset_hub: "kusama",
+  };
+  return map[normalized] || agentChainId;
+};
+
 const AgentConnect = () => {
   // LunoKit hooks
   const { account } = useAccount();
@@ -167,7 +179,7 @@ const AgentConnect = () => {
     if (!isWalletConnected && isAgentConnected) {
       handleDisconnect();
     }
-  }, [isWalletConnected]);
+  }, [isWalletConnected, isAgentConnected]);
 
   const handleConnectAgent = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -183,13 +195,14 @@ const AgentConnect = () => {
     setError(null);
 
     try {
-      // Get chain name for polkadot-agent-kit
+      // Get chain name for polkadot-agent-kit (may be asset hub)
       const agentChain = getAgentChainId(chain?.name);
+      const relayChainForPools = mapToRelayChain(agentChain);
 
       console.log("Creating PolkadotAgentKit instance...");
       console.log("LunoKit chain name:", chain?.name);
       console.log("Using account:", account.address);
-      console.log("Using agent chain:", agentChain);
+      console.log("Using agent chain:", agentChain, "(relay for pools:", relayChainForPools, ")");
 
       // For LunoKit integration, we need to use a signer approach
       // But for now, we'll ask for seed phrase since polkadot-agent-kit needs it
@@ -228,12 +241,18 @@ const AgentConnect = () => {
       setAgentInstance(agent);
       setIsAgentConnected(true);
 
-      // Add welcome message
+      // Add welcome message with asset hub vs relay guidance
+      const connectedAccountLabel = account.name || account.address.slice(0, 8) + "...";
+      const agentChainLabel = chain?.name || agentChain;
+      const relayInfo = agentChain.endsWith("_asset_hub")
+        ? `Note: You are connected to an Asset Hub (${agentChainLabel}). Nomination pools exist on the corresponding relay chain (${mapToRelayChain(agentChain)}).`
+        : `Connected to relay chain: ${mapToRelayChain(agentChain)}.`;
+
       setMessages([
         {
           id: crypto.randomUUID(),
           role: "system",
-          content: `Welcome to the Nomination Staking Agent!\n\nConnected Account: ${account.name || account.address.slice(0, 8) + "..."}\nChain: ${chain?.name || "Unknown"}\nModel: ${model}\n\nI can help you with:\n- Joining nomination pools\n- Bonding extra tokens\n- Unbonding tokens\n- Withdrawing unbonded tokens\n- Claiming rewards\n- Getting pool information\n\nHow can I assist you today?`,
+          content: `Welcome to the Nomination Staking Agent!\n\nConnected Account: ${connectedAccountLabel}\nChain: ${agentChainLabel} (chain id: ${agentChain})\n${relayInfo}\nModel: ${model}\n\nI can help you with:\n- Joining nomination pools\n- Bonding extra tokens\n- Unbonding tokens\n- Withdrawing unbonded tokens\n- Claiming rewards\n- Getting pool information (use relay chain names like 'west' or 'paseo' for pool queries)\n\nHow can I assist you today?`,
           timestamp: new Date(),
         },
       ]);
