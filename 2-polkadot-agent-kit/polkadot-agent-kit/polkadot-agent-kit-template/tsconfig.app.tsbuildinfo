@@ -1,1 +1,1 @@
-{"root":["./src/AgentConnect.tsx","./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/agent/AgentWrapper.ts"],"version":"5.9.3"}
+{"root":["./src/AgentConnect.tsx","./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/actions/checkUserPool.action.ts","./src/actions/ensureChainApi.action.ts","./src/actions/listNominationPools.action.ts","./src/agent/AgentWrapper.ts","./src/agent/types.ts","./src/prompts/createStakingSystemPrompt.ts"],"version":"5.9.3"}

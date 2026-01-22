@@ -1,6 +1,7 @@
 import { useState, FormEvent, useRef, useEffect } from "react";
 import { PolkadotAgentKit } from "@polkadot-agent-kit/sdk";
-import { AgentWrapper, AgentProvider } from "./agent/AgentWrapper";
+import { AgentWrapper } from "./agent/AgentWrapper";
+import { AgentProvider } from "./agent/types";
 import Markdown from "react-markdown";
 import {
   useAccount,
@@ -27,29 +28,28 @@ interface Message {
 
 const STAKING_QUICK_ACTIONS = [
   {
-    label: "Get Pool Info (Westend)",
-    prompt: "Get information about nomination pools on west",
-  },
-  {
     label: "Get Pool Info (Paseo)",
     prompt: "Get information about nomination pools on paseo",
   },
   {
     label: "Join Pool",
-    prompt: "Join nomination pool with 1 WND on west_asset_hub",
+    prompt: "Join nomination pool with 1 PAS on paseo_asset_hub",
   },
   {
     label: "Bond Extra",
-    prompt: "Bond extra 0.5 WND to my pool on west_asset_hub",
+    prompt: "Bond extra 0.5 PAS to my pool on paseo_asset_hub",
   },
   {
     label: "Claim Rewards",
-    prompt: "Claim my staking rewards on west_asset_hub",
+    prompt: "Claim my staking rewards on paseo_asset_hub",
   },
-  { label: "Unbond", prompt: "Unbond 0.5 WND from my pool on west_asset_hub" },
+  {
+    label: "Unbond",
+    prompt: "Unbond 0.5 PAS from my pool on paseo_asset_hub",
+  },
   {
     label: "Withdraw",
-    prompt: "Withdraw my unbonded tokens on west_asset_hub",
+    prompt: "Withdraw my unbonded tokens on paseo_asset_hub",
   },
 ];
 
@@ -164,6 +164,10 @@ const AgentConnect = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentInstance, setAgentInstance] = useState<AgentWrapper | null>(null);
+  // Seed modal state (in-memory only)
+  const [showSeedModal, setShowSeedModal] = useState(false);
+  const [seedPhrase, setSeedPhrase] = useState("");
+  const [pendingConnect, setPendingConnect] = useState<any>(null);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -196,7 +200,8 @@ const AgentConnect = () => {
     }
   }, [isWalletConnected, isAgentConnected]);
 
-  const handleConnectAgent = async (e: FormEvent<HTMLFormElement>) => {
+  // Start connect flow: validate and show seed modal
+  const handleStartConnect = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!account) {
@@ -206,47 +211,47 @@ const AgentConnect = () => {
       return;
     }
 
+    setError(null);
+
+    // Prepare params and show modal to accept a seed/private key (input type=password)
+    const agentChain = getAgentChainId(chain?.name);
+    const relayChains = ["paseo", "paseo_asset_hub"];
+
+    setPendingConnect({
+      agentChain,
+      relayChains,
+      llmProvider: llmProvider,
+      model,
+      apiKey,
+      chainName: chain?.name,
+      accountAddress: account.address,
+    });
+    setSeedPhrase("");
+    setShowSeedModal(true);
+  };
+
+  // Confirm seed and perform the actual connection (seed is kept in-memory only)
+  const confirmSeedAndConnect = async () => {
+    setShowSeedModal(false);
     setLoading(true);
     setError(null);
 
+    const params = pendingConnect;
+    if (!params) {
+      setError("Missing connection parameters");
+      setLoading(false);
+      return;
+    }
+
     try {
-      // Get chain name for polkadot-agent-kit (may be asset hub)
-      const agentChain = getAgentChainId(chain?.name);
-      const relayChainForPools = mapToRelayChain(agentChain);
+      const { agentChain, relayChains, llmProvider: provider, model: m, apiKey: aKey, chainName } = params;
 
-      console.log("Creating PolkadotAgentKit instance...");
-      console.log("LunoKit chain name:", chain?.name);
-      console.log("Using account:", account.address);
-      console.log(
-        "Using agent chain:",
-        agentChain,
-        "(relay for pools:",
-        relayChainForPools,
-        ")",
-      );
+      if (!seedPhrase) throw new Error("Seed phrase/private key is required to initialize the agent");
 
-      // For LunoKit integration, we need to use a signer approach
-      // But for now, we'll ask for seed phrase since polkadot-agent-kit needs it
-      const seedPhrase = prompt(
-        "Enter your seed phrase to sign transactions (this is only used locally):",
-      );
-
-      if (!seedPhrase) {
-        throw new Error("Seed phrase is required to initialize the agent");
-      }
-
-      // Initialize agent with all relay chains that have nomination pools
-      // Nomination pools exist on relay chains, not asset hubs
-      const relayChains = [
-        // "west",
-        // "west_asset_hub",
-        // "paseo",
-        "paseo_asset_hub",
-      ];
       const agentKit = new PolkadotAgentKit({
         privateKey: seedPhrase,
         keyType: "Sr25519",
-        chains: relayChains as any,
+        chains: ["paseo", "paseo_asset_hub"] as any,
       });
 
       console.log("Initializing blockchain APIs...");
@@ -254,12 +259,11 @@ const AgentConnect = () => {
 
       console.log("Setting up LLM agent...");
       const agent = new AgentWrapper(agentKit, {
-        provider: llmProvider,
-        model,
-        apiKey: requiresApiKey(llmProvider) ? apiKey : undefined,
+        provider,
+        model: m,
+        apiKey: requiresApiKey(provider) ? aKey : undefined,
         connectedChain: agentChain,
-        connectedChainDisplayName: chain?.name || agentChain,
-        connectedAccount: account.address,
+        connectedChainDisplayName: chainName || agentChain,
       });
 
       console.log("Initializing agent executor...");
@@ -268,9 +272,8 @@ const AgentConnect = () => {
       setAgentInstance(agent);
       setIsAgentConnected(true);
 
-      // Add welcome message with asset hub vs relay guidance
-      const connectedAccountLabel =
-        account.name || account.address.slice(0, 8) + "...";
+      // Add welcome message
+      const connectedAccountLabel = account ? (account.name || account.address.slice(0, 8) + "...") : "Unknown";
       const agentChainLabel = chain?.name || agentChain;
       const relayInfo = agentChain.endsWith("_asset_hub")
         ? `Note: You are connected to an Asset Hub (${agentChainLabel}). Nomination pools exist on the corresponding relay chain (${mapToRelayChain(agentChain)}).`
@@ -280,7 +283,7 @@ const AgentConnect = () => {
         {
           id: crypto.randomUUID(),
           role: "system",
-          content: `Welcome to the Nomination Staking Agent!\n\nConnected Account: ${connectedAccountLabel}\nChain: ${agentChainLabel} (chain id: ${agentChain})\n${relayInfo}\nModel: ${model}\n\nI can help you with:\n- Joining nomination pools\n- Bonding extra tokens\n- Unbonding tokens\n- Withdrawing unbonded tokens\n- Claiming rewards\n- Getting pool information (use relay chain names like 'west' or 'paseo' for pool queries)\n\nHow can I assist you today?`,
+          content: `Welcome to the Nomination Staking Agent!\n\nConnected Account: ${connectedAccountLabel}\nChain: ${agentChainLabel} (chain id: ${agentChain})\n${relayInfo}\nModel: ${m}\n\nI can help you with:\n- Joining nomination pools\n- Bonding extra tokens\n- Unbonding tokens\n- Withdrawing unbonded tokens\n- Claiming rewards\n- Getting pool information (use relay chain names like 'west' or 'paseo' for pool queries)\n\nHow can I assist you today?`,
           timestamp: new Date(),
         },
       ]);
@@ -291,7 +294,15 @@ const AgentConnect = () => {
       console.error("Error connecting agent:", err);
     } finally {
       setLoading(false);
+      setPendingConnect(null);
+      setSeedPhrase("");
     }
+  };
+
+  const cancelSeedModal = () => {
+    setShowSeedModal(false);
+    setPendingConnect(null);
+    setSeedPhrase("");
   };
 
   const handleDisconnect = () => {
@@ -433,7 +444,7 @@ const AgentConnect = () => {
             )}
           </div>
 
-          <form onSubmit={handleConnectAgent} className="agent-form">
+          <form onSubmit={handleStartConnect} className="agent-form">
             <div className="form-section">
               <div className="section-header">
                 <div className="section-icon">
@@ -579,6 +590,46 @@ const AgentConnect = () => {
               )}
             </button>
           </form>
+
+          {/* Seed modal (in-memory only). Shown when user clicks Start Staking Agent */}
+          {showSeedModal && (
+            <div className="modal-backdrop">
+              <div className="modal">
+                <h3>Provide Seed / Private Key</h3>
+                <p>
+                  Paste your seed phrase or private key below. This value is kept
+                  only in memory and never persisted. Use with caution.
+                </p>
+                <label>
+                  <span className="label-text">Seed / Private Key</span>
+                  <input
+                    type="password"
+                    value={seedPhrase}
+                    onChange={(e) => setSeedPhrase(e.target.value)}
+                    placeholder="Paste seed phrase or private key"
+                    className="seed-input"
+                  />
+                </label>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={cancelSeedModal}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={confirmSeedAndConnect}
+                    disabled={!seedPhrase}
+                  >
+                    Confirm and Start
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="chat-wrapper">

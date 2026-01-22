@@ -321,6 +321,9 @@ export class AgentWrapper {
   private formatPoolInfo(result: any): string {
     if (!result) return "No pool information available.";
 
+    // Handle wrapped response
+    if (result.data) result = result.data;
+
     let output = "**Nomination Pools Information**\n\n";
 
     // Prefer to show the chain field provided by the tool
