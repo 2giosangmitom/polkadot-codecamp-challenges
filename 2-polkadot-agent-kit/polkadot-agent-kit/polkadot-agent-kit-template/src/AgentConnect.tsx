@@ -57,34 +57,34 @@ const STAKING_QUICK_ACTIONS = [
 // LunoKit may return various formats, so we normalize and check multiple patterns
 const getAgentChainId = (chainName: string | undefined): string => {
   if (!chainName) return "west_asset_hub";
-  
+
   const normalized = chainName.toLowerCase().trim();
-  
+
   // Direct mapping
   const CHAIN_MAPPING: Record<string, string> = {
     // Asset Hub chains (required for staking)
     "westend asset hub": "west_asset_hub",
     "westend assethub": "west_asset_hub",
     "westend-asset-hub": "west_asset_hub",
-    "west_asset_hub": "west_asset_hub",
+    west_asset_hub: "west_asset_hub",
     "polkadot asset hub": "polkadot_asset_hub",
     "polkadot assethub": "polkadot_asset_hub",
     "polkadot-asset-hub": "polkadot_asset_hub",
-    "polkadot_asset_hub": "polkadot_asset_hub",
+    polkadot_asset_hub: "polkadot_asset_hub",
     "kusama asset hub": "kusama_asset_hub",
     "kusama assethub": "kusama_asset_hub",
     "kusama-asset-hub": "kusama_asset_hub",
-    "kusama_asset_hub": "kusama_asset_hub",
+    kusama_asset_hub: "kusama_asset_hub",
     "paseo asset hub": "paseo_asset_hub",
     "paseo assethub": "paseo_asset_hub",
     "paseo-asset-hub": "paseo_asset_hub",
-    "paseo_asset_hub": "paseo_asset_hub",
+    paseo_asset_hub: "paseo_asset_hub",
     // Relay chains
-    "polkadot": "polkadot",
-    "kusama": "kusama",
-    "westend": "west",
-    "west": "west",
-    "paseo": "paseo",
+    polkadot: "polkadot",
+    kusama: "kusama",
+    westend: "west",
+    west: "west",
+    paseo: "paseo",
   };
 
   // Try direct match first
@@ -93,27 +93,42 @@ const getAgentChainId = (chainName: string | undefined): string => {
   }
 
   // Try pattern matching for asset hub chains
-  if (normalized.includes("paseo") && (normalized.includes("asset") || normalized.includes("hub"))) {
+  if (
+    normalized.includes("paseo") &&
+    (normalized.includes("asset") || normalized.includes("hub"))
+  ) {
     return "paseo_asset_hub";
   }
-  if (normalized.includes("westend") && (normalized.includes("asset") || normalized.includes("hub"))) {
+  if (
+    normalized.includes("westend") &&
+    (normalized.includes("asset") || normalized.includes("hub"))
+  ) {
     return "west_asset_hub";
   }
-  if (normalized.includes("polkadot") && (normalized.includes("asset") || normalized.includes("hub"))) {
+  if (
+    normalized.includes("polkadot") &&
+    (normalized.includes("asset") || normalized.includes("hub"))
+  ) {
     return "polkadot_asset_hub";
   }
-  if (normalized.includes("kusama") && (normalized.includes("asset") || normalized.includes("hub"))) {
+  if (
+    normalized.includes("kusama") &&
+    (normalized.includes("asset") || normalized.includes("hub"))
+  ) {
     return "kusama_asset_hub";
   }
 
   // Fallback to relay chain matching
   if (normalized.includes("paseo")) return "paseo";
-  if (normalized.includes("westend") || normalized.includes("west")) return "west";
+  if (normalized.includes("westend") || normalized.includes("west"))
+    return "west";
   if (normalized.includes("polkadot")) return "polkadot";
   if (normalized.includes("kusama")) return "kusama";
 
   // Default fallback
-  console.warn(`Unknown chain name: "${chainName}", defaulting to west_asset_hub`);
+  console.warn(
+    `Unknown chain name: "${chainName}", defaulting to west_asset_hub`,
+  );
   return "west_asset_hub";
 };
 
@@ -202,7 +217,13 @@ const AgentConnect = () => {
       console.log("Creating PolkadotAgentKit instance...");
       console.log("LunoKit chain name:", chain?.name);
       console.log("Using account:", account.address);
-      console.log("Using agent chain:", agentChain, "(relay for pools:", relayChainForPools, ")");
+      console.log(
+        "Using agent chain:",
+        agentChain,
+        "(relay for pools:",
+        relayChainForPools,
+        ")",
+      );
 
       // For LunoKit integration, we need to use a signer approach
       // But for now, we'll ask for seed phrase since polkadot-agent-kit needs it
@@ -214,14 +235,19 @@ const AgentConnect = () => {
         throw new Error("Seed phrase is required to initialize the agent");
       }
 
-       // Initialize agent with all relay chains that have nomination pools
-       // Nomination pools exist on relay chains, not asset hubs
-       const relayChains = ["polkadot", "kusama", "west", "paseo"];
-       const agentKit = new PolkadotAgentKit({
-         privateKey: seedPhrase,
-         keyType: "Sr25519",
-         chains: relayChains as any,
-       });
+      // Initialize agent with all relay chains that have nomination pools
+      // Nomination pools exist on relay chains, not asset hubs
+      const relayChains = [
+        // "west",
+        // "west_asset_hub",
+        // "paseo",
+        "paseo_asset_hub",
+      ];
+      const agentKit = new PolkadotAgentKit({
+        privateKey: seedPhrase,
+        keyType: "Sr25519",
+        chains: relayChains as any,
+      });
 
       console.log("Initializing blockchain APIs...");
       await agentKit.initializeApi();
@@ -233,6 +259,7 @@ const AgentConnect = () => {
         apiKey: requiresApiKey(llmProvider) ? apiKey : undefined,
         connectedChain: agentChain,
         connectedChainDisplayName: chain?.name || agentChain,
+        connectedAccount: account.address,
       });
 
       console.log("Initializing agent executor...");
@@ -242,7 +269,8 @@ const AgentConnect = () => {
       setIsAgentConnected(true);
 
       // Add welcome message with asset hub vs relay guidance
-      const connectedAccountLabel = account.name || account.address.slice(0, 8) + "...";
+      const connectedAccountLabel =
+        account.name || account.address.slice(0, 8) + "...";
       const agentChainLabel = chain?.name || agentChain;
       const relayInfo = agentChain.endsWith("_asset_hub")
         ? `Note: You are connected to an Asset Hub (${agentChainLabel}). Nomination pools exist on the corresponding relay chain (${mapToRelayChain(agentChain)}).`
